@@ -6,10 +6,7 @@
 ## Description
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/1.png", width="24%">
-  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/2.png", width="24%">
-  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/3.png", width="24%">
-  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/4.png", width="24%">
+  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/2.png", width="70%">
   <br>
 </p>
 
