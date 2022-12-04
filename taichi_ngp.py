@@ -127,7 +127,7 @@ def dir_encode_func(dir_):
 
 @ti.data_oriented
 class NGP_fw:
-    def __init__(self, scale, cascades, grid_size, base_res, log2_T, n_rays, level, exp_step_factor, center, xyz_min, xyz_max):
+    def __init__(self, scale, cascades, grid_size, base_res, log2_T, n_rays, level, exp_step_factor):
         self.N_rays = n_rays
         self.grid_size = grid_size
         self.exp_step_factor = exp_step_factor
@@ -137,9 +137,9 @@ class NGP_fw:
         # t1, t2 need to be initialized to -1.0
         self.hits_t = ti.Vector.field(n=2, dtype=data_type, shape=(self.N_rays))
         self.hits_t.fill(-1.0)
-        self.center = center
-        self.xyz_min = xyz_min
-        self.xyz_max = xyz_max
+        self.center = tf_vec3(0.0)
+        self.xyz_min = -tf_vec3(scale)
+        self.xyz_max = tf_vec3(scale)
         self.half_size = (self.xyz_max - self.xyz_min) / 2
 
         self.rays_o = ti.Vector.field(n=3, dtype=data_type, shape=(self.N_rays))
@@ -235,6 +235,7 @@ class NGP_fw:
 
     @ti.kernel
     def reset(self):
+        self.rgb.fill(0.0)
         self.depth.fill(0.0)
         self.opacity.fill(0.0)
         self.counter[None] = self.N_rays
@@ -259,8 +260,8 @@ class NGP_fw:
     @ti.kernel
     def ray_intersect(self, ray_o: ti.template(), ray_d: ti.template()):
         for i in range(self.N_rays): 
-            ray_d_ = ray_d[i]
-            ray_o_ = ray_o[i]
+            ray_d_ = ti.cast(ray_d[i], data_type)
+            ray_o_ = ti.cast(ray_o[i], data_type)
             
             t1t2 = self._ray_aabb_intersec(ray_o_, ray_d_)
 
@@ -294,7 +295,7 @@ class NGP_fw:
 
             start_idx = n * N_samples
 
-            while (0<=t) & (t<t2) & (s<N_samples):
+            while (t>0) & (t<t2) & (s<N_samples):
                 # xyz = ray_o + t*ray_d
                 xyz = ray_o + t*ray_d
                 dt = calc_dt(t, self.exp_step_factor, self.grid_size, self.scale)
@@ -339,7 +340,6 @@ class NGP_fw:
     @ti.kernel
     def rearange_index(self, B: ti.i32):
         self.model_launch[None] = 0
-        
         for i in ti.ndrange(B):
             if self.run_model_ind[i]:
                 index = ti.atomic_add(self.model_launch[None], 1)
@@ -468,6 +468,7 @@ class NGP_fw:
                 
                 dir_ = self.dirs[ray_id]
                 input = dir_encode_func(dir_)
+                # input = tf_vec32(0.0)
 
                 for i in ti.static(range(16)):
                     input[16+i] = self.final_embedding[sn, i]
@@ -562,16 +563,16 @@ class NGP_fw:
         plt.imsave('taichi_ngp_depth.png', depth2img(depth_np))
 
     @ti.kernel
-    def set_final_color(self):
+    def set_final_color(self, bg_color: vec3):
         for i in ti.ndrange(self.N_rays):
             rgb_bg = vec3(1.0)
-            self.rgb[i] += rgb_bg*(1-self.opacity[i])
+            self.rgb[i] += bg_color*(1-self.opacity[i])
 
     def render(self, max_samples, T_threshold, ray_o, ray_dir, use_dof=False, dist_to_focus=0.8, len_dis=0.0) -> Tuple[float, int, int]:
         samples = 0
         self.reset()
         self.ray_intersect(ray_o, ray_dir)
-        print("done ray intersect")
+        # print("done ray intersect")
 
         while samples < max_samples:
             N_alive = self.counter[None]
@@ -582,25 +583,29 @@ class NGP_fw:
             samples += N_samples
             launch_model_total = N_alive * N_samples
 
-            print(f"samples: {samples}, N_alive: {N_alive}, N_samples: {N_samples}")
+            # print(f"samples: {samples}, N_alive: {N_alive}, N_samples: {N_samples}")
             self.raymarching_test_kernel(N_samples)
-            print("done raymarching")
+            # sum_hit = self.N_eff_samples.to_numpy().sum()
+            # print(f"sum_hit: {sum_hit}")
+            # print("done raymarching")
+            # ti.sync()
+            # print(f"launch_model_total: {launch_model_total}")
             self.rearange_index(launch_model_total)
-            print("done rearange index")
+            # print("done rearange index")
             # self.dir_encode()
             self.hash_encode()
-            print("done hash encode")
+            # print("done hash encode")
             self.sigma_layer()
-            print("done sigma layer")
+            # print("done sigma layer")
             self.rgb_layer()
-            print("done rgb layer")
+            # print("done rgb layer")
             # self.FullyFusedMLP()
             self.composite_test(N_samples, T_threshold)
-            print("done composite test")
+            # print("done composite test")
             self.re_order(N_alive)
-            print("done re order")
+            # print("done re order")
 
-        self.set_final_color()
+        # self.set_final_color(bg_color)
 
         return samples, N_alive, N_samples
 

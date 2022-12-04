@@ -16,7 +16,7 @@ import wget
 
 
 # switch to cpu if needed
-ti.init(arch=ti.vulkan)
+ti.init(arch=ti.cuda)
 
 
 @ti.func
@@ -66,7 +66,7 @@ if __name__ == '__main__':
 
     # load density field
     grid_size = 128
-    model_path = '/Users/linyoutian/code/taichi_code/taichi-ngp-renderer/npy_models/lego.npy'
+    model_path = '../taichi-ngp-renderer/npy_models/lego.npy'
     print('Loading model from {}'.format(model_path))
     model = np.load(model_path, allow_pickle=True).item()
     print(model.keys())
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     start_attenuation = Vector(1.0, 1.0, 1.0)
     initial = True
 
-    max_depth = 50
+    max_depth = 20
 
     @ti.kernel
     def render_complete():
@@ -226,15 +226,26 @@ if __name__ == '__main__':
                     reflected, out_origin, out_direction, attenuation = world.materials.scatter(
                         index, ray_dir, p, n, front_facing)
 
-                    if world.object_type[index] == 1:
-                        cube_info_index = ti.atomic_add(save_index, 1)
-                        cube_ray_org[cube_info_index] = ray_org
-                        cube_ray_dir[cube_info_index] = ray_dir
-                        cube_ray_id[cube_info_index][0] = x
-                        cube_ray_id[cube_info_index][1] = y
-
                     if reflected:
-                        pdf *= attenuation
+                        # pdf *= attenuation
+                        if world.object_type[index] == 1:
+                            cube_info_index = ti.atomic_add(save_index, 1)
+                            ray_d_factor = 0.5
+                            if d > 1:
+                                ray_d_factor = 0.6
+                            cube_info_index = ti.atomic_add(save_index, 1)
+                            # convert to ngp coordinate
+                            #((vec3((127-j), k, (127-i)) + 0.5) / grid_size)*2 - 1 + center
+                            pre_ray_o = (ray_org - vec3(4.0, 1.0, 0.0)) * 0.5
+                            pre_ray_d = ray_dir * ray_d_factor
+
+                            cube_ray_org[cube_info_index] = vec3(pre_ray_o[2], -pre_ray_o[0], pre_ray_o[1])
+                            cube_ray_dir[cube_info_index] = vec3(pre_ray_d[2], -pre_ray_d[0], pre_ray_d[1])
+                            cube_ray_id[cube_info_index][0] = x
+                            cube_ray_id[cube_info_index][1] = y
+
+                        else:
+                            pdf *= attenuation
                     else:
                         attenuation_temp[x, y] = vec3(0.0)
                         break
@@ -251,11 +262,13 @@ if __name__ == '__main__':
         return save_index
 
     @ti.kernel
-    def comp_pdf_from_ngp(color: ti.template(), count: int):
+    def comp_pdf_from_ngp(color: ti.template(), opc: ti.template(), count: int):
         for i in ti.ndrange(count):
             x = cube_ray_id[i][0]
             y = cube_ray_id[i][1]
-            attenuation_temp[x, y] *= color[i]
+            color_temp = color[i]
+            color_temp += vec3(1.0)*(1-opc[i])
+            attenuation_temp[x, y] *= color_temp
 
 
     scale = 0.5
@@ -268,9 +281,6 @@ if __name__ == '__main__':
         n_rays=800*800,
         level=16, 
         exp_step_factor=0,
-        center=vec3(4.0, 1.0, 0.0),
-        xyz_min=vec3(4.0, 1.0, 0.0)-1.,
-        xyz_max=vec3(4.0, 1.0, 0.0)+1.,
     )
 
     model_dir = './npy_models/'
@@ -285,7 +295,7 @@ if __name__ == '__main__':
 
     ngp.hash_table_init()
 
-    window = ti.ui.Window("Taichi RayTracer", (image_width, image_height), vsync=False)
+    window = ti.ui.Window("Taichi RayTracing", (image_width, image_height), vsync=False)
     canvas = window.get_canvas()
     gui = window.get_gui()
     d = 0
@@ -294,10 +304,15 @@ if __name__ == '__main__':
         # wavefront_initial()
         cube_hit = render()
         ngp.N_rays = cube_hit
-        print(f"ngp render rays: {cube_hit}")
-        ngp.render(max_samples=10, T_threshold=1e-4, ray_o=cube_ray_org, ray_dir=cube_ray_dir)
-        print("ngp render done")
-        comp_pdf_from_ngp(ngp.rgb, cube_hit)
+        # print("save ray")
+        # ray_dict = {'ray_o': cube_ray_org.to_numpy(), 'ray_d': cube_ray_dir.to_numpy()}
+        # np.save('ray_dict.npy', ray_dict)
+        # assert False
+        # print(f"ngp render rays: {cube_hit}")
+        # assert False
+        ngp.render(max_samples=100, T_threshold=1e-4, ray_o=cube_ray_org, ray_dir=cube_ray_dir)
+        # print("ngp render done")
+        comp_pdf_from_ngp(ngp.rgb, ngp.opacity, cube_hit)
         # render_complete()
         finish(d)
         canvas.set_image(final_pixels)
