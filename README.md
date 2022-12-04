@@ -6,9 +6,11 @@
 ## Description
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/2.png", width="70%">
+  <img src="https://raw.githubusercontent.com/Linyou/NeRF-in-RayTracing/main/assets/2.png", width="85%">
   <br>
 </p>
+
+**This project is in the early stages of development.**
 
 Neural radiance field (**NeRF**) is a state-of-the-art novel view synthesis method capable of rendering photorealistic scenes by only training with collective images and camera pose.
 
